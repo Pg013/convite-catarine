@@ -7,7 +7,7 @@ export default function App() {
   console.log("App carregado"); // Depuração
   const eventISO = "2025-11-23T15:00:00-03:00";
   const eventDate = new Date(eventISO);
-
+ 
   const [activeTab, setActiveTab] = useState("passaporte");
   const [selectedForGifts, setSelectedForGifts] = useState(null);
   const [guests, setGuests] = useState(() => {
