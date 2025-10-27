@@ -2,22 +2,25 @@
   "version": 2,
   "builds": [
     {
-      "src": "api/server.js",
-      "use": "@vercel/node"
-    },
-    {
       "src": "package.json",
       "use": "@vercel/static-build",
       "config": {
         "distDir": "dist"
       }
+    },
+    {
+      "src": "api/server.js",
+      "use": "@vercel/node",
+      "config": { "maxLambdaSize": "10mb" } // Opcional, para evitar erros de tamanho
     }
   ],
   "routes": [
+    // Rota da API
     {
       "src": "/api/(.*)",
-      "dest": "api/server.js"
+      "dest": "/api/server.js" // MANTENDO com a barra, pois a tentativa anterior falhou.
     },
+    // Rota do Frontend
     {
       "src": "/(.*)",
       "dest": "/dist/index.html"
