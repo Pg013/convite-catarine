@@ -1,7 +1,7 @@
-// Usa require() para melhor compatibilidade com Vercel/Node.js padrão
-const express = require('express');
+// Use require() para melhor compatibilidade com Vercel/Node.js padrão
+const express = require('express'); 
 const { initializeApp } = require('firebase/app');
-const { getDatabase, ref, get, update } = require('firebase/database'); // Adicione 'update' se for usar na rota de reserva
+const { getDatabase, ref, get, update } = require('firebase/database'); 
 const cors = require('cors');
 
 const app = express();
@@ -9,7 +9,7 @@ const PORT = process.env.PORT || 3001; // Mantido apenas para teste local
 
 // Configurações do Firebase
 const firebaseConfig = {
-  databaseURL: "https://convite-catarine-default-rtdb.firebaseio.com/" // Seu URL confirmado
+  databaseURL: "https://convite-catarine-default-rtdb.firebaseio.com/" // Seu URL do Firebase
 };
 initializeApp(firebaseConfig);
 const database = getDatabase();
@@ -17,15 +17,12 @@ const database = getDatabase();
 app.use(express.json());
 
 // ==========================================================
-// CONFIGURAÇÃO DE CORS
-// Permite requisições do localhost e do domínio de produção
+// CONFIGURAÇÃO DE CORS UNIVERSAL
+// Permite que *qualquer* domínio (local, preview, produção) acesse a API.
+// Isso resolve o erro de conexão que persiste.
 // ==========================================================
 app.use(cors({
-  origin: [
-    'http://localhost:5173', // Ambiente de desenvolvimento (Vite)
-    'https://convite-catarine-nm3f45v71-gabriels-projects-fca19e5c.vercel.app', // URL de produção (exemplo)
-    // Se seu frontend estiver em um domínio diferente, adicione-o aqui.
-  ],
+  origin: '*', // <--- A MUDANÇA CRUCIAL
   methods: ['GET', 'POST', 'OPTIONS'], // GET para estoque, POST para reserva, OPTIONS para CORS preflight
   allowedHeaders: ['Content-Type'],
   optionsSuccessStatus: 200 // Resposta de sucesso para OPTIONS
@@ -41,8 +38,11 @@ app.get('/api/estoque', async (req, res) => {
   try {
     const estoqueRef = ref(database, 'estoque');
     const snapshot = await get(estoqueRef);
-    // Fallback se não houver dados no Firebase
-    const data = snapshot.exists() ? snapshot.val() : { "Fralda RN": 10, "Fralda P": 20, "Fralda M": 30, "Fralda G": 30 };
+    // Valores padrão caso o Firebase não tenha dados (o que seu frontend espera)
+    const defaultData = { "Fralda RN": 10, "Fralda P": 20, "Fralda M": 30, "Fralda G": 30 };
+    
+    // Retorna os dados do Firebase ou os valores padrão
+    const data = snapshot.exists() ? snapshot.val() : defaultData;
     res.json(data);
   } catch (error) {
     console.error('Erro Firebase na rota estoque:', error);
@@ -51,47 +51,34 @@ app.get('/api/estoque', async (req, res) => {
 });
 
 // ==========================================================
-// ROTA 2: RESERVA (POST) - (Você precisará desta rota)
-// Esta rota deve atualizar a contagem de estoque no Firebase.
+// ROTA 2: RESERVA (POST) - (Rota que seu frontend chama para confirmar)
+// IMPORTANTE: Se o seu backend não tem essa rota, o frontend receberá 404.
 // ==========================================================
 app.post('/api/reservar', async (req, res) => {
   const { gifts, convidado } = req.body;
 
-  if (!gifts) {
-    return res.status(400).json({ error: 'Faltando dados de presentes.' });
+  if (!gifts || !convidado) {
+    return res.status(400).json({ error: 'Faltando dados de presentes ou nome do convidado.' });
   }
 
   try {
-    const estoqueRef = ref(database, 'estoque');
-    const snapshot = await get(estoqueRef);
-    const currentEstoque = snapshot.exists() ? snapshot.val() : {};
-
     const updates = {};
-    let isUpdated = false;
+    const timestamp = new Date().toISOString();
 
-    // Itera sobre os presentes que o convidado escolheu (true)
+    // Itera sobre os presentes escolhidos
     for (const [tamanho, selecionado] of Object.entries(gifts)) {
       if (selecionado) {
-        // Atualiza a contagem no Firebase (por exemplo, reduzindo o valor no nó do Firebase)
-        // OBS: O Firebase deve armazenar o total DISPONÍVEL, e não o USADO.
-        // Se o Firebase armazena o TOTAL NECESSÁRIO e você só está rastreando os USADOS,
-        // a lógica de atualização deve ser diferente (por exemplo, criando um nó para o convidado).
-
-        // ASSUMINDO QUE O SEU FIREBASE ARMAZENA O TOTAL USADO (OU NECESSÁRIO)
-        // Para a sua lógica do frontend funcionar, esta rota provavelmente deve apenas
-        // registrar o presente e a contagem total deve ser atualizada pelo frontend na próxima busca,
-        // ou você deve ter um nó separado para rastrear os presentes.
-
-        // Se você usa o total USADO no frontend:
-        // Crie um nó separado para registrar os presentes dados por convidado.
-        const presenteKey = tamanho.replace(' ', '_'); // Ex: Fralda_P
-        updates[`reservas/${convidado}/${presenteKey}`] = true;
-        isUpdated = true;
+        // Registra a reserva no Firebase sob um nó de 'reservas'
+        // Isso é mais seguro do que tentar decrementar estoque aqui.
+        updates[`reservas/${convidado}/${tamanho}`] = {
+            reservado: true,
+            data: timestamp
+        };
       }
     }
 
     // Aplica as reservas no Firebase
-    if (isUpdated) {
+    if (Object.keys(updates).length > 0) {
         await update(ref(database), updates);
     }
     
@@ -102,9 +89,9 @@ app.post('/api/reservar', async (req, res) => {
   }
 });
 
+
 // ==========================================================
 // EXPORTAÇÃO (Vercel Serverless Function)
-// O Vercel usa este objeto como o manipulador principal da função.
 // ==========================================================
 module.exports = app;
 
