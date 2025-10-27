@@ -31,7 +31,7 @@ export default function App() {
   useEffect(() => {
     async function fetchEstoque() {
       try {
-        const res = await fetch(''https://convite-catarine-nm3f45v71-gabriels-projects-fca19e5c.vercel.app/api/estoque', {
+        const res = await fetch('https://convite-catarine-nm3f45v71-gabriels-projects-fca19e5c.vercel.app/api/estoque', {
           method: 'GET',
           headers: { 'Content-Type': 'application/json' },
           mode: 'cors' // Força modo CORS
