@@ -1,3 +1,4 @@
+@'
 {
   "version": 2,
   "builds": [
@@ -12,8 +13,13 @@
   ],
   "routes": [
     {
-      "src": "/(.*)",
+      "src": "/api/(.*)",
+      "dest": "/api/$1"
+    },
+    {
+      "src": "/(.*)", 
       "dest": "/index.html"
     }
   ]
 }
+'@ | Out-File -FilePath "vercel.json" -Encoding utf8
