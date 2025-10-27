@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from "react";
-import fundoImg from './assets/cegonha.png'; // Imagem de fundo mantida
+import fundoImg from './assets/cegonha.png'; // Restaurado o import da imagem
 
 const MAX_GIFTS = { "Fralda RN": 10, "Fralda P": 20, "Fralda M": 30, "Fralda G": 30 };
 
 export default function App() {
+  console.log("App carregado"); // Depuração
   const eventISO = "2025-11-23T15:00:00-03:00";
   const eventDate = new Date(eventISO);
 
@@ -149,10 +150,13 @@ export default function App() {
     const url = `https://wa.me/5513996292499?text=${encodedMessage}`;
     
     try {
-      setTimeout(() => {
+      // Ajuste para iOS: usar location.href como fallback para pop-ups bloqueados
+      if (/iPhone|iPad|iPod/.test(navigator.userAgent) && !window.open(url, "_blank")) {
+        location.href = url;
+      } else {
         window.open(url, "_blank");
-        setIsSending(false);
-      }, 1000);
+      }
+      setIsSending(false);
     } catch (error) {
       console.error("Error opening WhatsApp:", error);
       setError("Erro ao abrir o WhatsApp. Tente novamente.");
@@ -163,9 +167,9 @@ export default function App() {
   if (error) {
     return (
       <div style={styles.errorContainer}>
-        <h2 style={{ color: "#ff4444" }}>Ocorreu um erro</h2>
+        <h2 style={{ color: "#ff85b3" }}>Ocorreu um erro</h2>
         <p>{error}</p>
-        <button style={styles.confirmButton} onClick={() => setError(null)}>Tentar novamente</button>
+        <button style={{ ...styles.confirmButton, color: darkMode ? "#ff85b3" : "#fff" }} onClick={() => setError(null)}>Tentar novamente</button>
       </div>
     );
   }
@@ -176,7 +180,7 @@ export default function App() {
       <div
         style={{
           ...styles.page,
-          backgroundImage: fundoImg ? `url(${fundoImg})` : "none", // Imagem de fundo restaurada
+          backgroundImage: fundoImg ? `url(${fundoImg})` : "none", // Restaurado com fallback
           transition: "transform 0.5s ease",
         }}
         onMouseMove={(e) => {
@@ -200,7 +204,11 @@ export default function App() {
         <div style={darkMode ? styles.darkCard : styles.card}>
           <div style={styles.tabs}>
             <button
-              style={activeTab === "passaporte" ? { ...styles.tab, ...styles.tabActive } : styles.tab}
+              style={
+                activeTab === "passaporte"
+                  ? { ...styles.tab, ...styles.tabActive }
+                  : { ...styles.tab, color: darkMode ? "#ff85b3" : "#333" } // Rosa no modo escuro quando inativa
+              }
               onClick={() => setActiveTab("passaporte")}
               aria-selected={activeTab === "passaporte"}
               role="tab"
@@ -209,7 +217,11 @@ export default function App() {
               Passaporte
             </button>
             <button
-              style={activeTab === "checkin" ? { ...styles.tab, ...styles.tabActive } : styles.tab}
+              style={
+                activeTab === "checkin"
+                  ? { ...styles.tab, ...styles.tabActive }
+                  : { ...styles.tab, color: darkMode ? "#ff85b3" : "#333" } // Rosa no modo escuro quando inativa
+              }
               onClick={() => setActiveTab("checkin")}
               aria-selected={activeTab === "checkin"}
               role="tab"
@@ -259,7 +271,14 @@ export default function App() {
                       </div>
                       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                         <button title="Editar presentes" aria-label="Editar presentes" onClick={() => openGiftsFor(i)} style={styles.presentButton}>🎀</button>
-                        <button title="Remover check-in" aria-label="Remover check-in" onClick={() => removeGuest(i)} style={styles.cancelButton}>✖</button>
+                        <button
+                          title="Remover check-in"
+                          aria-label="Remover check-in"
+                          onClick={() => removeGuest(i)}
+                          style={{ ...styles.cancelButton, color: darkMode ? "#ff85b3" : "#333" }}
+                        >
+                          ✖
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -285,10 +304,17 @@ export default function App() {
                 )}
 
                 <div style={{ marginTop: 16, display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <button style={styles.confirmButton} onClick={confirmAllAndSend} disabled={isSending}>
+                  <button
+                    style={styles.confirmButton}
+                    onClick={confirmAllAndSend}
+                    disabled={isSending}
+                  >
                     {isSending ? "Enviando..." : "Confirmar check-ins e enviar WhatsApp"}
                   </button>
-                  <button style={styles.cancelButton} onClick={clearGuestList}>
+                  <button
+                    style={{ ...styles.cancelButton, color: darkMode ? "#ff85b3" : "#333" }}
+                    onClick={clearGuestList}
+                  >
                     Limpar lista
                   </button>
                 </div>
@@ -345,7 +371,12 @@ function AddGuestRow({ onAdd, darkMode }) {
   return (
     <div>
       {!open ? (
-        <button style={styles.confirmButton} onClick={() => setOpen(true)}>+ Adicionar pessoa</button>
+        <button
+          style={{ ...styles.confirmButton, color: darkMode ? "#fff" : "#fff" }}
+          onClick={() => setOpen(true)}
+        >
+          + Adicionar pessoa
+        </button>
       ) : (
         <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center", flexWrap: "wrap" }}>
           <label htmlFor="new-guest-name" style={{ display: "none" }}>Nome</label>
@@ -364,8 +395,18 @@ function AddGuestRow({ onAdd, darkMode }) {
             onChange={e => setAge(e.target.value.replace(/[^\d]/g, ""))}
             style={darkMode ? styles.darkAgeInput : styles.ageInput}
           />
-          <button onClick={handleAdd} style={styles.confirmButton}>Salvar</button>
-          <button onClick={() => setOpen(false)} style={styles.cancelButton}>Cancelar</button>
+          <button
+            onClick={handleAdd}
+            style={{ ...styles.confirmButton, color: darkMode ? "#fff" : "#fff" }}
+          >
+            Salvar
+          </button>
+          <button
+            onClick={() => setOpen(false)}
+            style={{ ...styles.cancelButton, color: darkMode ? "#ff85b3" : "#333" }}
+          >
+            Cancelar
+          </button>
         </div>
       )}
     </div>
@@ -414,7 +455,12 @@ function GiftsEditor({ guest, guestIndex, updateGuest, isBlockedFor, done, darkM
       </div>
 
       <div style={{ marginTop: 6 }}>
-        <button style={styles.confirmButton} onClick={done}>Salvar</button>
+        <button
+          style={{ ...styles.confirmButton, color: darkMode ? "#fff" : "#fff" }}
+          onClick={done}
+        >
+          Salvar
+        </button>
       </div>
     </div>
   );
@@ -481,6 +527,7 @@ const styles = {
     cursor: "pointer",
     fontWeight: 600,
     transition: "background 0.3s ease, transform 0.2s ease",
+    color: "#333", // Cor padrão para modo claro
   },
   tabActive: {
     background: "#ff85b3",
@@ -576,6 +623,7 @@ const styles = {
     fontSize: 14,
     transition: "background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease",
     boxShadow: "0 2px 8px rgba(0, 0, 0, 0.1)",
+    color: "#333", // Cor padrão, ajustada no JSX
   },
   confirmButton: {
     padding: "12px 18px",
