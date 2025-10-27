@@ -1,31 +1,27 @@
 // api/server.js
 const express = require('express');
-const { initializeApp } = require('firebase/app');
-const { getDatabase, ref, get, update, runTransaction } = require('firebase/database');
 const cors = require('cors');
 
+// Firebase Admin SDK (para servidor)
+const admin = require('firebase-admin');
+
+// Inicializar Firebase Admin
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: "convite-catarine",
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+    }),
+    databaseURL: "https://convite-catarine-default-rtdb.firebaseio.com/"
+  });
+}
+
+const db = admin.database();
 const app = express();
-const PORT = process.env.PORT || 3001;
-
-// Configurações do Firebase
-const firebaseConfig = {
-  databaseURL: "https://convite-catarine-default-rtdb.firebaseio.com/"
-};
-
-// Inicializar Firebase
-const firebaseApp = initializeApp(firebaseConfig);
-const database = getDatabase(firebaseApp);
 
 app.use(express.json());
-
-// CORS configuration
-app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type'],
-  optionsSuccessStatus: 200
-}));
-
+app.use(cors({ origin: '*', methods: ['GET', 'POST', 'OPTIONS'] }));
 app.options('*', cors());
 
 // ==========================================================
@@ -35,10 +31,9 @@ app.get('/api/estoque', async (req, res) => {
   console.log('📦 Recebida requisição GET para /api/estoque');
   
   try {
-    const estoqueRef = ref(database, 'estoque');
-    const snapshot = await get(estoqueRef);
+    const snapshot = await db.ref('estoque').once('value');
     
-    // Valores padrão caso o Firebase não tenha dados
+    // Valores padrão
     const defaultData = { 
       "Fralda RN": 10, 
       "Fralda P": 20, 
@@ -52,10 +47,9 @@ app.get('/api/estoque', async (req, res) => {
       console.log('✅ Estoque encontrado no Firebase:', data);
     } else {
       data = defaultData;
-      console.log('⚠️  Usando estoque padrão:', data);
-      
-      // Se não existe, cria com valores padrão
-      await update(ref(database, 'estoque'), defaultData);
+      console.log('⚠️ Usando estoque padrão');
+      // Cria com valores padrão se não existir
+      await db.ref('estoque').set(defaultData);
     }
     
     res.json(data);
@@ -69,7 +63,7 @@ app.get('/api/estoque', async (req, res) => {
 });
 
 // ==========================================================
-// ROTA 2: RESERVA (POST) - ATUALIZADA COM CONTROLE DE ESTOQUE
+// ROTA 2: RESERVA (POST)
 // ==========================================================
 app.post('/api/reservar', async (req, res) => {
   console.log('🎯 Recebida requisição POST para /api/reservar:', req.body);
@@ -84,64 +78,57 @@ app.post('/api/reservar', async (req, res) => {
   }
 
   try {
-    const updates = {};
     const timestamp = new Date().toISOString();
-    const reservasUpdates = {};
+    const updates = {};
 
     // Processar cada presente selecionado
     for (const [tipoFralda, selecionado] of Object.entries(gifts)) {
       if (selecionado) {
         console.log(`🔄 Processando ${tipoFralda} para ${convidado}`);
         
-        const estoqueRef = ref(database, `estoque/${tipoFralda}`);
+        const estoqueRef = db.ref(`estoque/${tipoFralda}`);
         
-        try {
-          // Usar transaction para garantir atomicidade
-          await runTransaction(estoqueRef, (currentStock) => {
-            console.log(`📊 Estoque atual de ${tipoFralda}:`, currentStock);
-            
-            // Se não existe no Firebase, usar valor padrão
-            if (currentStock === null) {
-              const defaultStock = {
-                "Fralda RN": 10,
-                "Fralda P": 20, 
-                "Fralda M": 30,
-                "Fralda G": 30
-              }[tipoFralda];
-              
-              console.log(`⚠️  ${tipoFralda} não encontrado, usando padrão:`, defaultStock - 1);
-              return defaultStock - 1;
-            }
-            
-            const stockNumber = parseInt(currentStock);
-            if (isNaN(stockNumber) || stockNumber <= 0) {
-              throw new Error(`Estoque insuficiente para ${tipoFralda}`);
-            }
-            
-            console.log(`✅ Reservando ${tipoFralda}. Novo estoque:`, stockNumber - 1);
-            return stockNumber - 1;
-          });
+        // Usar transaction do Admin SDK
+        await db.ref().transaction((currentData) => {
+          if (!currentData) {
+            currentData = {};
+          }
           
-          // Registrar a reserva
-          reservasUpdates[`reservas/${convidado}/${tipoFralda}`] = {
+          if (!currentData.estoque) {
+            currentData.estoque = {
+              "Fralda RN": 10,
+              "Fralda P": 20, 
+              "Fralda M": 30,
+              "Fralda G": 30
+            };
+          }
+          
+          const currentStock = currentData.estoque[tipoFralda] || 0;
+          if (currentStock <= 0) {
+            throw new Error(`Estoque insuficiente para ${tipoFralda}`);
+          }
+          
+          // Decrementa estoque
+          currentData.estoque[tipoFralda] = currentStock - 1;
+          
+          // Adiciona reserva
+          if (!currentData.reservas) {
+            currentData.reservas = {};
+          }
+          if (!currentData.reservas[convidado]) {
+            currentData.reservas[convidado] = {};
+          }
+          currentData.reservas[convidado][tipoFralda] = {
             reservado: true,
             quantidade: 1,
             data: timestamp
           };
           
-          console.log(`🎉 ${tipoFralda} reservado com sucesso para ${convidado}`);
-          
-        } catch (transactionError) {
-          console.error(`❌ Erro na transação para ${tipoFralda}:`, transactionError);
-          throw new Error(`Falha ao reservar ${tipoFralda}: ${transactionError.message}`);
-        }
+          return currentData;
+        });
+        
+        console.log(`🎉 ${tipoFralda} reservado com sucesso para ${convidado}`);
       }
-    }
-
-    // Aplicar todas as reservas no Firebase
-    if (Object.keys(reservasUpdates).length > 0) {
-      await update(ref(database), reservasUpdates);
-      console.log('📝 Reservas registradas no Firebase');
     }
 
     res.status(200).json({ 
@@ -155,8 +142,7 @@ app.post('/api/reservar', async (req, res) => {
     console.error('💥 Erro geral na rota reservar:', error);
     res.status(500).json({ 
       success: false, 
-      error: error.message || 'Falha ao registrar a reserva.',
-      details: 'Erro interno do servidor'
+      error: error.message || 'Falha ao registrar a reserva.'
     });
   }
 });
@@ -166,8 +152,7 @@ app.post('/api/reservar', async (req, res) => {
 // ==========================================================
 app.get('/api/health', async (req, res) => {
   try {
-    const estoqueRef = ref(database, 'estoque');
-    const snapshot = await get(estoqueRef);
+    const snapshot = await db.ref('estoque').once('value');
     
     res.json({
       status: 'healthy',
@@ -184,16 +169,4 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
-// ==========================================================
-// EXPORTAÇÃO (Vercel Serverless Function)
-// ==========================================================
 module.exports = app;
-
-// Bloco para execução local (não é usado no Vercel)
-if (process.env.NODE_ENV !== 'production' && process.env.VERCEL_ENV !== 'production') {
-  app.listen(PORT, () => {
-    console.log(`🚀 Servidor de API rodando em http://localhost:${PORT}`);
-    console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
-    console.log(`📦 Estoque: http://localhost:${PORT}/api/estoque`);
-  });
-}
