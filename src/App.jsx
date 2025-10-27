@@ -31,7 +31,7 @@ export default function App() {
   useEffect(() => {
     async function fetchEstoque() {
       try {
-        const res = await fetch(`https://convite-catarine-nm3f45v71-gabriels-projects-fca19e5c.vercel.app/api/estoque`, {
+        const res = await fetch(`/api/estoque`, {
           method: 'GET',
           headers: { 'Content-Type': 'application/json' },
           mode: 'cors' // Força modo CORS
@@ -161,7 +161,7 @@ export default function App() {
     try {
       for (const g of guests) {
         if (Object.values(g.gifts).some(v => v)) {
-          const res = await fetch(`https://convite-catarine-nm3f45v71-gabriels-projects-fca19e5c.vercel.app/api/reservar`, {
+          const res = await fetch(`/api/reservar`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ gifts: g.gifts, convidado: g.name })
