@@ -3,9 +3,9 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  base: '/', // Essencial pro deploy no Vercel
+  base: '/', // Corrige caminhos de assets no deploy
   build: {
-    outDir: 'dist', // Pasta de output do build
-    emptyOutDir: true, // Limpa a pasta antes do build
+    outDir: 'dist', // Pasta de output
+    emptyOutDir: true, // Limpa antes do build
   },
 })

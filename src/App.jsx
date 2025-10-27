@@ -26,22 +26,30 @@ export default function App() {
 
   const darkMode = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
 
-  // Carrega o estoque do backend
-  const [totals, setTotals] = useState(MAX_GIFTS);
+  // Carrega o estoque do backend com fallback e atualização
+  const [totals, setTotals] = useState(MAX_GIFTS); // Inicia com fallback
   useEffect(() => {
     async function fetchEstoque() {
       try {
-        const res = await fetch('http://localhost:3001/api/estoque');
-        if (!res.ok) throw new Error('Erro ao carregar estoque');
+        const res = await fetch(''https://convite-catarine-nm3f45v71-gabriels-projects-fca19e5c.vercel.app/api/estoque', {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+          mode: 'cors' // Força modo CORS
+        });
+        if (!res.ok) throw new Error(`Erro HTTP: ${res.status} - ${res.statusText}`);
         const data = await res.json();
-        setTotals(data);
-      } catch (error) {
-        setError("Erro ao carregar estoque: " + error.message);
+        setTotals(data); // Atualiza com dados reais
+        setError(null); // Limpa erro se sucesso
+      } catch (err) {
+        console.error('Erro ao carregar estoque:', err.message); // Log detalhado
+        setError('Falha ao conectar à API. Usando valores padrão.');
+        setTotals(MAX_GIFTS); // Fallback automático
       }
     }
-    fetchEstoque();
-    const interval = setInterval(fetchEstoque, 10000); // Atualiza a cada 10 segundos
-    return () => clearInterval(interval);
+
+    fetchEstoque(); // Executa na inicialização
+    const interval = setInterval(fetchEstoque, 10000); // Atualiza a cada 10s
+    return () => clearInterval(interval); // Limpa ao desmontar
   }, []);
 
   const totalsUsed = useMemo(() => {
@@ -153,7 +161,7 @@ export default function App() {
     try {
       for (const g of guests) {
         if (Object.values(g.gifts).some(v => v)) {
-          const res = await fetch('http://localhost:3001/api/reservar', {
+          const res = await fetch('https://convite-catarine-nm3f45v71-gabriels-projects-fca19e5c.vercel.app/api/reservar', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ gifts: g.gifts, convidado: g.name })
@@ -193,16 +201,6 @@ export default function App() {
     } finally {
       setIsSending(false);
     }
-  }
-
-  if (error) {
-    return (
-      <div style={styles.errorContainer}>
-        <h2 style={{ color: "#ff85b3" }}>Ocorreu um erro</h2>
-        <p>{error}</p>
-        <button style={{ ...styles.confirmButton, color: darkMode ? "#ff85b3" : "#fff" }} onClick={() => setError(null)}>Tentar novamente</button>
-      </div>
-    );
   }
 
   return (
@@ -266,6 +264,7 @@ export default function App() {
 
             {activeTab === "checkin" && (
               <div>
+                {error && <div style={{ color: 'red', margin: '10px 0' }}>{error}</div>} {/* Erro visual na UI principal */}
                 <h3 style={{ marginTop: 0, color: darkMode ? "#ffdfe8" : "#7f3b57" }}>Lista de Check-ins</h3>
                 <p style={{ marginTop: 6, marginBottom: 14, fontSize: 14, color: darkMode ? "#ffdfe8" : "#7f3b57" }}>
                   Crianças não precisam levar presente.
