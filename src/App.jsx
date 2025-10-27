@@ -1,10 +1,11 @@
+// src/App.js
 import React, { useState, useEffect, useMemo } from "react";
-import fundoImg from './assets/cegonha.png'; // Restaurado o import da imagem
+import fundoImg from './assets/cegonha.png';
 
 const MAX_GIFTS = { "Fralda RN": 10, "Fralda P": 20, "Fralda M": 30, "Fralda G": 30 };
 
 export default function App() {
-  console.log("App carregado"); // Depuração
+  console.log("🎊 App carregado");
   const eventISO = "2025-11-23T15:00:00-03:00";
   const eventDate = new Date(eventISO);
  
@@ -15,7 +16,7 @@ export default function App() {
       const s = localStorage.getItem("guests_list_v2");
       return s ? JSON.parse(s) : [];
     } catch (error) {
-      console.error("Failed to load guests from localStorage:", error);
+      console.error("❌ Failed to load guests from localStorage:", error);
       return [];
     }
   });
@@ -23,45 +24,60 @@ export default function App() {
   const [tabTransition, setTabTransition] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState(null);
+  const [apiStatus, setApiStatus] = useState('checking');
 
   const darkMode = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
 
   // Carrega o estoque do backend com fallback e atualização
-  const [totals, setTotals] = useState(MAX_GIFTS); // Inicia com fallback
+  const [totals, setTotals] = useState(MAX_GIFTS);
+  const [lastUpdate, setLastUpdate] = useState(new Date());
+
   useEffect(() => {
     async function fetchEstoque() {
       try {
+        console.log('🔍 Buscando estoque da API...');
+        setApiStatus('loading');
+        
         const res = await fetch(`/api/estoque`, {
           method: 'GET',
           headers: { 'Content-Type': 'application/json' },
-          mode: 'cors' // Força modo CORS
         });
-        if (!res.ok) throw new Error(`Erro HTTP: ${res.status} - ${res.statusText}`);
+        
+        if (!res.ok) {
+          console.error('❌ Erro HTTP:', res.status, res.statusText);
+          throw new Error(`Erro HTTP: ${res.status}`);
+        }
+        
         const data = await res.json();
-        setTotals(data); // Atualiza com dados reais
-        setError(null); // Limpa erro se sucesso
+        console.log('✅ Estoque recebido:', data);
+        setTotals(data);
+        setError(null);
+        setApiStatus('success');
+        setLastUpdate(new Date());
       } catch (err) {
-        console.error('Erro ao carregar estoque:', err.message); // Log detalhado
+        console.error('❌ Erro ao carregar estoque:', err);
         setError('Falha ao conectar à API. Usando valores padrão.');
-        setTotals(MAX_GIFTS); // Fallback automático
+        setTotals(MAX_GIFTS);
+        setApiStatus('error');
       }
     }
 
-    fetchEstoque(); // Executa na inicialização
-    const interval = setInterval(fetchEstoque, 10000); // Atualiza a cada 10s
-    return () => clearInterval(interval); // Limpa ao desmontar
+    fetchEstoque();
+    const interval = setInterval(fetchEstoque, 8000); // Atualiza a cada 8s
+    return () => clearInterval(interval);
   }, []);
 
   const totalsUsed = useMemo(() => {
-    const totals = { "Fralda RN": 0, "Fralda P": 0, "Fralda M": 0, "Fralda G": 0 };
+    const used = { "Fralda RN": 0, "Fralda P": 0, "Fralda M": 0, "Fralda G": 0 };
     guests.forEach(g => {
       if (g.gifts) {
-        Object.keys(totals).forEach(k => {
-          if (g.gifts[k]) totals[k] += 1;
+        Object.keys(used).forEach(k => {
+          if (g.gifts[k]) used[k] += 1;
         });
       }
     });
-    return totals;
+    console.log('📊 Presentes usados calculados:', used);
+    return used;
   }, [guests]);
 
   useEffect(() => {
@@ -69,7 +85,7 @@ export default function App() {
       try {
         setCountdown(getDiff(eventDate, new Date()));
       } catch (error) {
-        console.error("Error updating countdown:", error);
+        console.error("❌ Error updating countdown:", error);
         setError("Erro ao atualizar o contador de tempo.");
       }
     }, 1000);
@@ -91,7 +107,7 @@ export default function App() {
       });
       localStorage.setItem("allGuestsGifts", JSON.stringify(all));
     } catch (error) {
-      console.error("Failed to save to localStorage:", error);
+      console.error("❌ Failed to save to localStorage:", error);
       setError("Erro ao salvar dados localmente.");
     }
   }, [guests]);
@@ -106,8 +122,14 @@ export default function App() {
     if (!guests[guestIndex]) return true;
     const already = totalsUsed[type];
     const guestHas = guests[guestIndex].gifts && guests[guestIndex].gifts[type];
-    const totalLeft = totals[type] || 0; // Usa o estoque do backend
-    return totalLeft <= already && !guestHas;
+    const totalLeft = totals[type] || 0;
+    const blocked = totalLeft <= already && !guestHas;
+    
+    if (blocked) {
+      console.log(`🚫 ${type} bloqueado para ${guests[guestIndex].name}. Total: ${totalLeft}, Usado: ${already}, Guest tem: ${guestHas}`);
+    }
+    
+    return blocked;
   }
 
   function updateGuest(index, patch) {
@@ -157,23 +179,45 @@ export default function App() {
     }
 
     setIsSending(true);
+    setError(null);
 
     try {
+      console.log('🔄 Iniciando processo de reserva para', guests.length, 'convidados');
+      
       for (const g of guests) {
         if (Object.values(g.gifts).some(v => v)) {
+          console.log(`📦 Reservando para ${g.name}:`, g.gifts);
+          
           const res = await fetch(`/api/reservar`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ gifts: g.gifts, convidado: g.name })
+            body: JSON.stringify({ 
+              gifts: g.gifts, 
+              convidado: g.name 
+            })
           });
-          if (!res.ok) throw new Error((await res.json()).error || 'Erro ao reservar');
+          
+          const result = await res.json();
+          console.log(`📨 Resposta da API para ${g.name}:`, result);
+          
+          if (!res.ok) {
+            throw new Error(result.error || `Erro ${res.status} ao reservar para ${g.name}`);
+          }
+          
+          if (!result.success) {
+            throw new Error(result.error || `Falha na reserva para ${g.name}`);
+          }
+          
+          console.log(`✅ Reserva confirmada para ${g.name}`);
         }
       }
 
+      // Preparar mensagem do WhatsApp
       const parts = guests.map(g => {
         const isChild = parseInt(g.age) < 18 || !g.age;
         const nameWithTag = isChild ? `${g.name} (criança)` : g.name;
         const ageStr = g.age ? `${g.age} anos` : "idade não informada";
+        
         if (!isChild) {
           const selected = Object.keys(g.gifts).filter(k => g.gifts[k]);
           const giftsStr = selected.length ? selected.join(", ") : "apenas presença";
@@ -188,20 +232,35 @@ export default function App() {
       const encodedMessage = encodeURIComponent(message);
       const url = `https://wa.me/5513996292499?text=${encodedMessage}`;
 
+      console.log('📤 Abrindo WhatsApp...');
+      
       if (/iPhone|iPad|iPod/.test(navigator.userAgent) && !window.open(url, "_blank")) {
         location.href = url;
       } else {
         window.open(url, "_blank");
       }
 
-      setGuests([]); // Limpa a lista após sucesso
+      // Limpa a lista após sucesso
+      setTimeout(() => {
+        setGuests([]);
+        console.log('🧹 Lista de convidados limpa após envio');
+      }, 1000);
+      
     } catch (error) {
-      console.error("Error opening WhatsApp or reserving:", error);
-      setError("Erro ao confirmar ou enviar WhatsApp: " + error.message);
+      console.error("💥 Erro no processo de reserva:", error);
+      setError("Erro ao confirmar reservas: " + error.message);
+      alert("Erro ao confirmar: " + error.message);
     } finally {
       setIsSending(false);
     }
   }
+
+  const availableGifts = {
+    "Fralda RN": totals["Fralda RN"] - totalsUsed["Fralda RN"],
+    "Fralda P": totals["Fralda P"] - totalsUsed["Fralda P"], 
+    "Fralda M": totals["Fralda M"] - totalsUsed["Fralda M"],
+    "Fralda G": totals["Fralda G"] - totalsUsed["Fralda G"]
+  };
 
   return (
     <>
@@ -229,6 +288,7 @@ export default function App() {
         <div className="particle" />
         <div className="particle" />
         <div className="particle" />
+        
         <div style={darkMode ? styles.darkCard : styles.card}>
           <div style={styles.tabs}>
             <button
@@ -259,39 +319,86 @@ export default function App() {
             </button>
           </div>
 
-          <div style={{ ...styles.tabContent, opacity: tabTransition ? 0 : 1, transform: tabTransition ? 'translateY(10px)' : 'translateY(0)' }}>
-            {activeTab === "passaporte" && <Passaporte eventDate={eventDate} countdown={countdown} darkMode={darkMode} />}
+          <div style={{ 
+            ...styles.tabContent, 
+            opacity: tabTransition ? 0 : 1, 
+            transform: tabTransition ? 'translateY(10px)' : 'translateY(0)' 
+          }}>
+            {activeTab === "passaporte" && (
+              <Passaporte eventDate={eventDate} countdown={countdown} darkMode={darkMode} />
+            )}
 
             {activeTab === "checkin" && (
               <div>
-                {error && <div style={{ color: 'red', margin: '10px 0' }}>{error}</div>} {/* Erro visual na UI principal */}
-                <h3 style={{ marginTop: 0, color: darkMode ? "#ffdfe8" : "#7f3b57" }}>Lista de Check-ins</h3>
+                {/* Status da API */}
+                <div style={{ 
+                  marginBottom: 14, 
+                  padding: 8, 
+                  borderRadius: 8, 
+                  background: apiStatus === 'error' ? '#ffebee' : '#e8f5e8',
+                  color: apiStatus === 'error' ? '#c62828' : '#2e7d32',
+                  fontSize: 12,
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <span>
+                    {apiStatus === 'loading' && '🔄 Conectando...'}
+                    {apiStatus === 'success' && '✅ Conectado ao servidor'}
+                    {apiStatus === 'error' && '❌ Usando dados locais'}
+                  </span>
+                  <span style={{ fontSize: 10, opacity: 0.7 }}>
+                    Atualizado: {lastUpdate.toLocaleTimeString()}
+                  </span>
+                </div>
+
+                {error && (
+                  <div style={{ 
+                    color: '#d32f2f', 
+                    margin: '10px 0', 
+                    padding: 10,
+                    background: '#ffebee',
+                    borderRadius: 8,
+                    border: '1px solid #ffcdd2'
+                  }}>
+                    {error}
+                  </div>
+                )}
+
+                <h3 style={{ marginTop: 0, color: darkMode ? "#ffdfe8" : "#7f3b57" }}>
+                  Lista de Check-ins
+                </h3>
+                
                 <p style={{ marginTop: 6, marginBottom: 14, fontSize: 14, color: darkMode ? "#ffdfe8" : "#7f3b57" }}>
                   Crianças não precisam levar presente.
                 </p>
-                <div style={{ marginBottom: 14, fontSize: 14, color: darkMode ? "#ffdfe8" : "#7f3b57" }}>
-                  <strong>Presentes restantes disponíveis:</strong><br />
-                  Fralda RN: {totals["Fralda RN"] - totalsUsed["Fralda RN"] || 0}<br />
-                  Fralda P: {totals["Fralda P"] - totalsUsed["Fralda P"] || 0}<br />
-                  Fralda M: {totals["Fralda M"] - totalsUsed["Fralda M"] || 0}<br />
-                  Fralda G: {totals["Fralda G"] - totalsUsed["Fralda G"] || 0}
+                
+                <div style={{ 
+                  marginBottom: 14, 
+                  padding: 12,
+                  background: darkMode ? '#3a2b3b' : '#fff0f5',
+                  borderRadius: 8,
+                  fontSize: 14, 
+                  color: darkMode ? "#ffdfe8" : "#7f3b57" 
+                }}>
+                  <strong>🎁 Presentes restantes disponíveis:</strong><br />
+                  Fralda RN: <strong>{availableGifts["Fralda RN"]}</strong> | 
+                  Fralda P: <strong>{availableGifts["Fralda P"]}</strong> | 
+                  Fralda M: <strong>{availableGifts["Fralda M"]}</strong> | 
+                  Fralda G: <strong>{availableGifts["Fralda G"]}</strong>
                 </div>
 
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {guests.map((g, i) => (
                     <div key={i} style={darkMode ? styles.darkGuestRow : styles.guestRow}>
                       <div style={{ flex: 1, display: "flex", gap: 6, alignItems: "center" }}>
-                        <label htmlFor={`name-${i}`} style={{ display: "none" }}>Nome</label>
                         <input
-                          id={`name-${i}`}
                           style={darkMode ? styles.darkNameInput : styles.nameInput}
                           placeholder="Nome"
                           value={g.name || ""}
                           onChange={e => updateGuest(i, { name: e.target.value })}
                         />
-                        <label htmlFor={`age-${i}`} style={{ display: "none" }}>Idade</label>
                         <input
-                          id={`age-${i}`}
                           style={darkMode ? styles.darkAgeInput : styles.ageInput}
                           placeholder="Idade"
                           value={g.age || ""}
@@ -299,7 +406,14 @@ export default function App() {
                         />
                       </div>
                       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                        <button title="Editar presentes" aria-label="Editar presentes" onClick={() => openGiftsFor(i)} style={styles.presentButton}>🎀</button>
+                        <button 
+                          title="Editar presentes" 
+                          aria-label="Editar presentes" 
+                          onClick={() => openGiftsFor(i)} 
+                          style={styles.presentButton}
+                        >
+                          🎀
+                        </button>
                         <button
                           title="Remover check-in"
                           aria-label="Remover check-in"
@@ -311,9 +425,14 @@ export default function App() {
                       </div>
                     </div>
                   ))}
+                  
                   <AddGuestRow
                     onAdd={(obj) => {
-                      setGuests(prev => [...prev, { ...obj, gifts: { "Fralda RN": false, "Fralda P": false, "Fralda M": false, "Fralda G": false }, mimo: "" }]);
+                      setGuests(prev => [...prev, { 
+                        ...obj, 
+                        gifts: { "Fralda RN": false, "Fralda P": false, "Fralda M": false, "Fralda G": false }, 
+                        mimo: "" 
+                      }]);
                     }}
                     darkMode={darkMode}
                   />
@@ -328,6 +447,7 @@ export default function App() {
                       isBlockedFor={(type) => isBlockedFor(type, selectedForGifts)}
                       done={() => setSelectedForGifts(null)}
                       darkMode={darkMode}
+                      availableGifts={availableGifts}
                     />
                   </div>
                 )}
@@ -338,13 +458,13 @@ export default function App() {
                     onClick={confirmAllAndSend}
                     disabled={isSending}
                   >
-                    {isSending ? "Enviando..." : "Confirmar check-ins e enviar WhatsApp"}
+                    {isSending ? "🔄 Enviando..." : "✅ Confirmar check-ins e enviar WhatsApp"}
                   </button>
                   <button
                     style={{ ...styles.cancelButton, color: darkMode ? "#ff85b3" : "#333" }}
                     onClick={clearGuestList}
                   >
-                    Limpar lista
+                    🗑️ Limpar lista
                   </button>
                 </div>
               </div>
@@ -404,21 +524,17 @@ function AddGuestRow({ onAdd, darkMode }) {
           style={{ ...styles.confirmButton, color: darkMode ? "#fff" : "#fff" }}
           onClick={() => setOpen(true)}
         >
-          + Adicionar pessoa
+          ➕ Adicionar pessoa
         </button>
       ) : (
         <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <label htmlFor="new-guest-name" style={{ display: "none" }}>Nome</label>
           <input
-            id="new-guest-name"
             placeholder="Nome"
             value={name}
             onChange={e => setName(e.target.value)}
             style={darkMode ? styles.darkNameInput : styles.nameInput}
           />
-          <label htmlFor="new-guest-age" style={{ display: "none" }}>Idade</label>
           <input
-            id="new-guest-age"
             placeholder="Idade"
             value={age}
             onChange={e => setAge(e.target.value.replace(/[^\d]/g, ""))}
@@ -428,13 +544,13 @@ function AddGuestRow({ onAdd, darkMode }) {
             onClick={handleAdd}
             style={{ ...styles.confirmButton, color: darkMode ? "#fff" : "#fff" }}
           >
-            Salvar
+            💾 Salvar
           </button>
           <button
             onClick={() => setOpen(false)}
             style={{ ...styles.cancelButton, color: darkMode ? "#ff85b3" : "#333" }}
           >
-            Cancelar
+            ❌ Cancelar
           </button>
         </div>
       )}
@@ -442,7 +558,7 @@ function AddGuestRow({ onAdd, darkMode }) {
   );
 }
 
-function GiftsEditor({ guest, guestIndex, updateGuest, isBlockedFor, done, darkMode }) {
+function GiftsEditor({ guest, guestIndex, updateGuest, isBlockedFor, done, darkMode, availableGifts }) {
   if (!guest) return null;
 
   function toggle(type) {
@@ -455,42 +571,89 @@ function GiftsEditor({ guest, guestIndex, updateGuest, isBlockedFor, done, darkM
     updateGuest({ mimo: e.target.value });
   }
 
+  const isChild = parseInt(guest.age) < 18 || !guest.age;
+
   return (
-    <div style={{ marginTop: 10, padding: 12, background: darkMode ? "#3e2836" : "#fff7fb", borderRadius: 10 }}>
-      <div style={{ color: darkMode ? "#fff" : "#7f3b57" }}><strong>{guest.name}</strong> • {guest.age ? `${guest.age} anos` : "idade não informada"}</div>
-      <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
-        <div style={{ fontWeight: 600, color: darkMode ? "#ffdfe8" : "#7f3b57" }}>Fraldas</div>
-        {["Fralda RN", "Fralda P", "Fralda M", "Fralda G"].map(f => {
-          const blocked = isBlockedFor(f, guestIndex);
-          const checked = !!(guest.gifts && guest.gifts[f]);
-          return (
-            <label key={f} style={{ opacity: blocked && !checked ? 0.6 : 1, color: darkMode ? "#fff" : "#333" }}>
-              <input type="checkbox" checked={checked} onChange={() => toggle(f)} disabled={blocked} /> {f}
-              {blocked && !checked && <span style={{ color: "red", marginLeft: 8 }}> Já conseguimos a quantidade que precisamos ❤️</span>}
+    <div style={{ 
+      marginTop: 10, 
+      padding: 16, 
+      background: darkMode ? "#3e2836" : "#fff7fb", 
+      borderRadius: 12,
+      border: `2px solid ${darkMode ? '#ff85b3' : '#ffb6c1'}`
+    }}>
+      <div style={{ 
+        color: darkMode ? "#fff" : "#7f3b57",
+        marginBottom: 12 
+      }}>
+        <strong>{guest.name}</strong> • {guest.age ? `${guest.age} anos` : "idade não informada"}
+        {isChild && <span style={{color: '#ff85b3', marginLeft: 8}}>👶 (criança - não precisa de presente)</span>}
+      </div>
+      
+      {!isChild && (
+        <>
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontWeight: 600, color: darkMode ? "#ffdfe8" : "#7f3b57", marginBottom: 8 }}>
+              🎁 Escolha as fraldas:
+            </div>
+            {["Fralda RN", "Fralda P", "Fralda M", "Fralda G"].map(f => {
+              const blocked = isBlockedFor(f, guestIndex);
+              const checked = !!(guest.gifts && guest.gifts[f]);
+              const available = availableGifts[f] > 0;
+              
+              return (
+                <label key={f} style={{ 
+                  display: 'block', 
+                  marginBottom: 6,
+                  opacity: (blocked && !checked) || !available ? 0.6 : 1, 
+                  color: darkMode ? "#fff" : "#333",
+                  padding: '4px 0'
+                }}>
+                  <input 
+                    type="checkbox" 
+                    checked={checked} 
+                    onChange={() => toggle(f)} 
+                    disabled={(blocked && !checked) || !available}
+                    style={{ marginRight: 8 }}
+                  /> 
+                  {f} 
+                  <span style={{ 
+                    fontSize: 12, 
+                    marginLeft: 8,
+                    color: available ? '#4caf50' : '#f44336'
+                  }}>
+                    ({availableGifts[f]} disponíveis)
+                  </span>
+                  {blocked && !checked && (
+                    <span style={{ color: "#f44336", marginLeft: 8, fontSize: 12 }}>
+                      ❌ Limite atingido
+                    </span>
+                  )}
+                </label>
+              );
+            })}
+          </div>
+
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ color: darkMode ? "#ffdfe8" : "#7f3b57", display: 'block', marginBottom: 4 }}>
+              🎀 Outro mimo (opcional):
             </label>
-          );
-        })}
-      </div>
+            <input
+              type="text"
+              value={guest.mimo || ""}
+              onChange={onMimoChange}
+              placeholder="Ex.: brinquedo, roupa, acessório..."
+              style={darkMode ? styles.darkInput : styles.input}
+            />
+          </div>
+        </>
+      )}
 
-      <div style={{ marginTop: 6 }}>
-        <label style={{ color: darkMode ? "#ffdfe8" : "#7f3b57" }}>Quero levar outro mimo (opcional)</label>
-        <input
-          type="text"
-          value={guest.mimo || ""}
-          onChange={onMimoChange}
-          placeholder="Ex.: brinquedo, roupa, acessório..."
-          style={darkMode ? styles.darkInput : styles.input}
-        />
-      </div>
-
-      <div style={{ marginTop: 6 }}>
-        <button
-          style={{ ...styles.confirmButton, color: darkMode ? "#fff" : "#fff" }}
-          onClick={done}
-        >
-          Salvar
-        </button>
-      </div>
+      <button
+        style={{ ...styles.confirmButton, color: darkMode ? "#fff" : "#fff" }}
+        onClick={done}
+      >
+        💾 Salvar
+      </button>
     </div>
   );
 }
@@ -498,8 +661,12 @@ function GiftsEditor({ guest, guestIndex, updateGuest, isBlockedFor, done, darkM
 function CounterBlock({ label, value, darkMode }) {
   return (
     <div style={darkMode ? styles.darkCounterBlock : styles.counterBlock}>
-      <div style={{ ...styles.counterValue, color: darkMode ? "#fff" : "#7f3b57" }}>{String(value).padStart(2, "0")}</div>
-      <div style={{ ...styles.counterLabel, color: darkMode ? "#ffdfe8" : "#7f3b57" }}>{label}</div>
+      <div style={{ ...styles.counterValue, color: darkMode ? "#fff" : "#7f3b57" }}>
+        {String(value).padStart(2, "0")}
+      </div>
+      <div style={{ ...styles.counterLabel, color: darkMode ? "#ffdfe8" : "#7f3b57" }}>
+        {label}
+      </div>
     </div>
   );
 }
@@ -722,16 +889,6 @@ const styles = {
   giftsEditorContainer: {
     animation: 'fadeIn 0.3s ease-in-out',
   },
-  errorContainer: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: "100vh",
-    textAlign: "center",
-    padding: 20,
-    backgroundColor: "#f5f5f5",
-  },
 };
 
 /* ---------- Helpers ---------- */
@@ -745,7 +902,7 @@ function getDiff(target, current) {
     const seconds = secs % 60;
     return { days, hours, minutes, seconds };
   } catch (error) {
-    console.error("Error calculating countdown:", error);
+    console.error("❌ Error calculating countdown:", error);
     return { days: 0, hours: 0, minutes: 0, seconds: 0 };
   }
 }
@@ -754,7 +911,7 @@ function formatDate(d) {
   try {
     return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
   } catch (error) {
-    console.error("Error formatting date:", error);
+    console.error("❌ Error formatting date:", error);
     return "Data inválida";
   }
 }
@@ -763,7 +920,7 @@ function formatTime(d) {
   try {
     return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
   } catch (error) {
-    console.error("Error formatting time:", error);
+    console.error("❌ Error formatting time:", error);
     return "Hora inválida";
   }
 }
@@ -792,7 +949,7 @@ const GlobalStyles = () => (
         background: radial-gradient(circle, rgba(255, 182, 193, 0.8) 0%, rgba(255, 105, 180, 0.6) 100%);
         border-radius: 50%;
         animation: fall 6s infinite linear;
-        zIndex: 10;
+        z-index: 10;
       }
       .particle:nth-child(1) { left: 10%; animation-delay: 0s; animation-duration: 5s; }
       .particle:nth-child(2) { left: 30%; animation-delay: 1s; animation-duration: 6s; }
