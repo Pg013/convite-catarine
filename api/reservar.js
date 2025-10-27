@@ -1,5 +1,3 @@
-@'
-// api/reservar.js
 import admin from 'firebase-admin';
 
 // Inicializar Firebase Admin
@@ -17,6 +15,7 @@ if (!admin.apps.length) {
 const db = admin.database();
 
 export default async function handler(req, res) {
+  // Configurar CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -29,20 +28,20 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Método não permitido' });
   }
 
-  const { gifts, convidado } = req.body;
-
-  if (!gifts || !convidado) {
-    return res.status(400).json({ 
-      success: false,
-      error: 'Faltando dados de presentes ou nome do convidado.' 
-    });
-  }
-
   try {
+    const { gifts, convidado } = req.body;
+
+    if (!gifts || !convidado) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Faltando dados de presentes ou nome do convidado.' 
+      });
+    }
+
     const timestamp = new Date().toISOString();
     const updates = {};
 
-    // Processar cada presente
+    // Processar cada presente selecionado
     for (const [tipoFralda, selecionado] of Object.entries(gifts)) {
       if (selecionado) {
         console.log(`🔄 Processando ${tipoFralda} para ${convidado}`);
@@ -51,12 +50,20 @@ export default async function handler(req, res) {
         const snapshot = await estoqueRef.once('value');
         const currentStock = snapshot.val();
         
-        if (currentStock === null || currentStock <= 0) {
-          throw new Error(`Estoque insuficiente para ${tipoFralda}`);
+        // Se não existe, usar valor padrão
+        const stockAtual = currentStock === null ? 
+          { "Fralda RN": 10, "Fralda P": 20, "Fralda M": 30, "Fralda G": 30 }[tipoFralda] : 
+          currentStock;
+        
+        if (stockAtual <= 0) {
+          return res.status(400).json({ 
+            success: false,
+            error: `Estoque insuficiente para ${tipoFralda}. Disponível: ${stockAtual}` 
+          });
         }
         
         // Atualizar estoque
-        await estoqueRef.set(currentStock - 1);
+        await estoqueRef.set(stockAtual - 1);
         
         // Registrar reserva
         updates[`reservas/${convidado}/${tipoFralda}`] = {
@@ -65,18 +72,19 @@ export default async function handler(req, res) {
           data: timestamp
         };
         
-        console.log(`🎉 ${tipoFralda} reservado. Novo estoque:`, currentStock - 1);
+        console.log(`✅ ${tipoFralda} reservado. Novo estoque: ${stockAtual - 1}`);
       }
     }
 
-    // Aplicar reservas
+    // Aplicar todas as reservas
     if (Object.keys(updates).length > 0) {
       await db.ref().update(updates);
+      console.log(`📝 Reservas registradas para ${convidado}`);
     }
 
     res.status(200).json({ 
       success: true, 
-      message: 'Reservas registradas com sucesso.',
+      message: 'Reservas registradas com sucesso e estoque atualizado.',
       convidado: convidado
     });
     
@@ -84,8 +92,7 @@ export default async function handler(req, res) {
     console.error('💥 Erro na reserva:', error);
     res.status(500).json({ 
       success: false, 
-      error: error.message 
+      error: error.message || 'Falha ao registrar a reserva.'
     });
   }
 }
-'@ | Out-File -FilePath "reservar.js" -Encoding utf8
