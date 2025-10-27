@@ -26,7 +26,25 @@ export default function App() {
 
   const darkMode = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
 
-  const totals = useMemo(() => {
+  // Carrega o estoque do backend
+  const [totals, setTotals] = useState(MAX_GIFTS);
+  useEffect(() => {
+    async function fetchEstoque() {
+      try {
+        const res = await fetch('http://localhost:3001/api/estoque');
+        if (!res.ok) throw new Error('Erro ao carregar estoque');
+        const data = await res.json();
+        setTotals(data);
+      } catch (error) {
+        setError("Erro ao carregar estoque: " + error.message);
+      }
+    }
+    fetchEstoque();
+    const interval = setInterval(fetchEstoque, 10000); // Atualiza a cada 10 segundos
+    return () => clearInterval(interval);
+  }, []);
+
+  const totalsUsed = useMemo(() => {
     const totals = { "Fralda RN": 0, "Fralda P": 0, "Fralda M": 0, "Fralda G": 0 };
     guests.forEach(g => {
       if (g.gifts) {
@@ -78,9 +96,10 @@ export default function App() {
 
   function isBlockedFor(type, guestIndex) {
     if (!guests[guestIndex]) return true;
-    const already = totals[type];
+    const already = totalsUsed[type];
     const guestHas = guests[guestIndex].gifts && guests[guestIndex].gifts[type];
-    return already >= MAX_GIFTS[type] && !guestHas;
+    const totalLeft = totals[type] || 0; // Usa o estoque do backend
+    return totalLeft <= already && !guestHas;
   }
 
   function updateGuest(index, patch) {
@@ -111,7 +130,7 @@ export default function App() {
     }
   }
 
-  function confirmAllAndSend() {
+  async function confirmAllAndSend() {
     if (guests.length === 0) {
       alert("Adicione pelo menos um check-in antes de confirmar.");
       return;
@@ -119,47 +138,59 @@ export default function App() {
 
     const missing = guests.some(g => !g.name || !g.name.trim());
     if (missing) {
-      alert("Por favor preencha o nome de todos os check-ins antes de confirmar.");
+      alert("Por favor, preencha o nome de todos os check-ins antes de confirmar.");
       return;
     }
 
     const missingAdultGifts = guests.some(g => parseInt(g.age) >= 18 && !Object.values(g.gifts).some(v => v));
     if (missingAdultGifts) {
-      alert("Por favor selecione pelo menos um presente para cada adulto antes de confirmar.");
+      alert("Por favor, selecione pelo menos um presente para cada adulto antes de confirmar.");
       return;
     }
 
     setIsSending(true);
 
-    const parts = guests.map(g => {
-      const isChild = parseInt(g.age) < 18 || !g.age;
-      const nameWithTag = isChild ? `${g.name} (criança)` : g.name;
-      const ageStr = g.age ? `${g.age} anos` : "idade não informada";
-      if (!isChild) {
-        const selected = Object.keys(g.gifts).filter(k => g.gifts[k]);
-        const giftsStr = selected.length ? selected.join(", ") : "apenas presença";
-        const mimoStr = g.mimo && g.mimo.trim() ? ` e um mimo especial: ${g.mimo.trim()}` : "";
-        return `${nameWithTag} (${ageStr}): Presente${selected.length > 1 ? "s" : ""}: ${giftsStr}${mimoStr}`;
-      } else {
-        return `${nameWithTag} (${ageStr}): Presença confirmada`;
-      }
-    });
-
-    const message = `Ola! Estamos confirmando nossa presenca para o cha de bebe!\n\n${parts.join("\n")}\n\nEstamos muito animados para compartilhar esse momento especial com voce! Ate la!`;
-    const encodedMessage = encodeURIComponent(message);
-    const url = `https://wa.me/5513996292499?text=${encodedMessage}`;
-    
     try {
-      // Ajuste para iOS: usar location.href como fallback para pop-ups bloqueados
+      for (const g of guests) {
+        if (Object.values(g.gifts).some(v => v)) {
+          const res = await fetch('http://localhost:3001/api/reservar', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ gifts: g.gifts, convidado: g.name })
+          });
+          if (!res.ok) throw new Error((await res.json()).error || 'Erro ao reservar');
+        }
+      }
+
+      const parts = guests.map(g => {
+        const isChild = parseInt(g.age) < 18 || !g.age;
+        const nameWithTag = isChild ? `${g.name} (criança)` : g.name;
+        const ageStr = g.age ? `${g.age} anos` : "idade não informada";
+        if (!isChild) {
+          const selected = Object.keys(g.gifts).filter(k => g.gifts[k]);
+          const giftsStr = selected.length ? selected.join(", ") : "apenas presença";
+          const mimoStr = g.mimo && g.mimo.trim() ? ` e um mimo especial: ${g.mimo.trim()}` : "";
+          return `${nameWithTag} (${ageStr}): Presente${selected.length > 1 ? "s" : ""}: ${giftsStr}${mimoStr}`;
+        } else {
+          return `${nameWithTag} (${ageStr}): Presença confirmada`;
+        }
+      });
+
+      const message = `Olá! Estamos confirmando nossa presença para o chá de bebê!\n\n${parts.join("\n")}\n\nEstamos muito animados para compartilhar esse momento especial com você! Até lá!`;
+      const encodedMessage = encodeURIComponent(message);
+      const url = `https://wa.me/5513996292499?text=${encodedMessage}`;
+
       if (/iPhone|iPad|iPod/.test(navigator.userAgent) && !window.open(url, "_blank")) {
         location.href = url;
       } else {
         window.open(url, "_blank");
       }
-      setIsSending(false);
+
+      setGuests([]); // Limpa a lista após sucesso
     } catch (error) {
-      console.error("Error opening WhatsApp:", error);
-      setError("Erro ao abrir o WhatsApp. Tente novamente.");
+      console.error("Error opening WhatsApp or reserving:", error);
+      setError("Erro ao confirmar ou enviar WhatsApp: " + error.message);
+    } finally {
       setIsSending(false);
     }
   }
@@ -180,7 +211,7 @@ export default function App() {
       <div
         style={{
           ...styles.page,
-          backgroundImage: fundoImg ? `url(${fundoImg})` : "none", // Restaurado com fallback
+          backgroundImage: fundoImg ? `url(${fundoImg})` : "none",
           transition: "transform 0.5s ease",
         }}
         onMouseMove={(e) => {
@@ -195,7 +226,6 @@ export default function App() {
           e.currentTarget.style.transform = "scale(1)";
         }}
       >
-        {/* Partículas de confetes */}
         <div className="particle" />
         <div className="particle" />
         <div className="particle" />
@@ -207,7 +237,7 @@ export default function App() {
               style={
                 activeTab === "passaporte"
                   ? { ...styles.tab, ...styles.tabActive }
-                  : { ...styles.tab, color: darkMode ? "#ff85b3" : "#333" } // Rosa no modo escuro quando inativa
+                  : { ...styles.tab, color: darkMode ? "#ff85b3" : "#333" }
               }
               onClick={() => setActiveTab("passaporte")}
               aria-selected={activeTab === "passaporte"}
@@ -220,7 +250,7 @@ export default function App() {
               style={
                 activeTab === "checkin"
                   ? { ...styles.tab, ...styles.tabActive }
-                  : { ...styles.tab, color: darkMode ? "#ff85b3" : "#333" } // Rosa no modo escuro quando inativa
+                  : { ...styles.tab, color: darkMode ? "#ff85b3" : "#333" }
               }
               onClick={() => setActiveTab("checkin")}
               aria-selected={activeTab === "checkin"}
@@ -242,10 +272,10 @@ export default function App() {
                 </p>
                 <div style={{ marginBottom: 14, fontSize: 14, color: darkMode ? "#ffdfe8" : "#7f3b57" }}>
                   <strong>Presentes restantes disponíveis:</strong><br />
-                  Fralda RN: {MAX_GIFTS["Fralda RN"] - totals["Fralda RN"]}<br />
-                  Fralda P: {MAX_GIFTS["Fralda P"] - totals["Fralda P"]}<br />
-                  Fralda M: {MAX_GIFTS["Fralda M"] - totals["Fralda M"]}<br />
-                  Fralda G: {MAX_GIFTS["Fralda G"] - totals["Fralda G"]}
+                  Fralda RN: {totals["Fralda RN"] - totalsUsed["Fralda RN"] || 0}<br />
+                  Fralda P: {totals["Fralda P"] - totalsUsed["Fralda P"] || 0}<br />
+                  Fralda M: {totals["Fralda M"] - totalsUsed["Fralda M"] || 0}<br />
+                  Fralda G: {totals["Fralda G"] - totalsUsed["Fralda G"] || 0}
                 </div>
 
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -488,7 +518,7 @@ const styles = {
     backgroundRepeat: "no-repeat",
     fontFamily: "'Inter', 'Roboto', 'Arial', sans-serif",
     color: "#333",
-    backgroundColor: "#f5f5f5", // Fallback
+    backgroundColor: "#f5f5f5",
     position: "relative",
     overflow: "hidden",
   },
@@ -527,7 +557,7 @@ const styles = {
     cursor: "pointer",
     fontWeight: 600,
     transition: "background 0.3s ease, transform 0.2s ease",
-    color: "#333", // Cor padrão para modo claro
+    color: "#333",
   },
   tabActive: {
     background: "#ff85b3",
@@ -623,7 +653,7 @@ const styles = {
     fontSize: 14,
     transition: "background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease",
     boxShadow: "0 2px 8px rgba(0, 0, 0, 0.1)",
-    color: "#333", // Cor padrão, ajustada no JSX
+    color: "#333",
   },
   confirmButton: {
     padding: "12px 18px",
